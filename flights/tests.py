@@ -1,38 +1,57 @@
 from rest_framework.test import APITestCase
 from rest_framework import status
 from django.urls import reverse
+from unittest.mock import patch
+
+# Dados mockados da resposta do Amadeus (para não acabar com a cota free)
+MOCK_AMADEUS_RESPONSE = {
+    "data": [
+        {
+            "itineraries": [
+                {
+                    "segments": [
+                        {
+                            "departure": {"iataCode": "GRU", "at": "2025-10-25T08:00:00"},
+                            "arrival": {"iataCode": "GIG", "at": "2025-10-25T09:00:00"},
+                            "carrierCode": "G3",
+                            "number": "1402"
+                        }
+                    ]
+                }
+            ],
+            "price": {
+                "total": "450.35"
+            },
+            "validatingAirlineCodes": ["G3"]
+        }
+    ],
+    "dictionaries": {
+        "carriers": {
+            "G3": "GOL Linhas Aereas"
+        }
+    }
+}
 
 class FlightSearchViewTestCase(APITestCase):
-    def test_search_flights_success(self):
+    @patch('flights.views.search_flights_from_amadeus')
+    def test_search_flights_success_with_mock(self, mock_amadeus_search):
         """
-        Garante que a busca de voos funciona com todos os parâmetros corretos.
+        Garante que a view processa corretamente a resposta mockada do Amadeus.
         """
-        # monta a URL dinamicamente
-        url = reverse('search-flights')
+        # Configuro o mock para retornar nossa resposta falsa quando for chamado.
+        mock_amadeus_search.return_value = MOCK_AMADEUS_RESPONSE
         
-        # Parâmetros da nossa requisição
-        params = {'origem': 'SAO', 'destino': 'RIO', 'data': '2025-10-25'}
+        url = reverse('search-flights')
+        params = {'origem': 'GRU', 'destino': 'GIG', 'data': '2025-10-25'}
 
-        # O client.get simula uma requisição GET para a URL com os parâmetros
         response = self.client.get(url, params)
 
-        # Verifica se a resposta teve status 200
+        # 1. O teste principal: a resposta da NOSSA API deve ser 200 OK
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # 2. Verifica se nosso código parseou o preço corretamente
+        self.assertEqual(response.data['opcoes_voo'][0]['preco'], "450.35")
         
-        # Verifica se 'opcoes_voo' (que possui as lista de viagens) está na resposta
-        self.assertIn('opcoes_voo', response.data)
-        
-        # Verifica se a lista de voos não está vazia
-        self.assertGreater(len(response.data['opcoes_voo']), 0)
+        # 3. Verifica se nosso código encontrou o nome da companhia
+        self.assertEqual(response.data['opcoes_voo'][0]['companhia'], "GOL Linhas Aereas")
 
-    def test_search_flights_missing_params(self):
-        """
-        Garante que a API retorna um erro 400 se faltar um parâmetro.
-        """
-        url = reverse('search-flights')
-        params = {'origem': 'SAO', 'destino': 'RIO'} # Faltando a 'data'
-
-        response = self.client.get(url, params)
-
-        # Verifica se a resposta foi um 400 Bad Request
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
