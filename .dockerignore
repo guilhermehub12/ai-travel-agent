@@ -4,5 +4,4 @@
 __pycache__/
 venv/
 db.sqlite3
-mock_flight_data.json
 *.pyc

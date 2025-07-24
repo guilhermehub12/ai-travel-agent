@@ -5,9 +5,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .amadeus_service import search_flights_from_amadeus
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from .serializers import PriceAlertSerializer
 from .models import PriceAlert
+from amadeus import ResponseError
 
 
 def parse_amadeus_response(amadeus_response):
@@ -17,28 +18,38 @@ def parse_amadeus_response(amadeus_response):
     """
     flights_list = []
 
-    carriers = amadeus_response.dictionaries.get(
-        'carriers', {}) if amadeus_response.dictionaries else {}
+    carriers = {}
+
+    if hasattr(amadeus_response, 'dictionaries') and amadeus_response.dictionaries is not None:
+        carriers = amadeus_response.dictionaries.get('carriers', {})
 
     for offer in amadeus_response.data:
-        price = offer.get('price', {}).get('total')
-
         try:
-            # obtém o primeiro segmento do primeiro itinerário
-            first_segment = offer.get('itineraries', [{}])[
-                0].get('segments', [{}])[0]
+            # Pega o primeiro itinerário da oferta (geralmente o voo de ida)
+            itinerary = offer['itineraries'][0]
+            segments = itinerary['segments']
 
-            carrier_code = first_segment.get('carrierCode')
-            flight_number = first_segment.get('number')
-            departure_time = first_segment.get('departure', {}).get('at')
+            # obtém o primeiro e o último trecho da viagem
+            first_segment = segments[0]
+            last_segment = segments[-1]
+
+            # Calcula o número de paradas
+            stops = len(segments) - 1
+
+            carrier_code = first_segment['carrierCode']
 
             flight_info = {
-                "voo": f"{carrier_code} {flight_number}",
-                "companhia": carriers.get(carrier_code, carrier_code),
-                "horario": departure_time,
-                "preco": price
+                "origin": first_segment['departure']['iataCode'],
+                "destination": last_segment['arrival']['iataCode'],
+                "departure_time": first_segment['departure']['at'],
+                "arrival_time": last_segment['arrival']['at'],
+                "stops": stops,
+                "duration": itinerary['duration'],
+                "carrier": carriers.get(carrier_code, carrier_code),
+                "price": offer.get('price', {}).get('total')
             }
             flights_list.append(flight_info)
+
         except (IndexError, KeyError) as e:
             print(f"Erro ao processar uma oferta de voo: {e}")
             continue
@@ -54,7 +65,7 @@ class FlightSearchView(APIView):
         origem = request.query_params.get('origem', None)
         destino = request.query_params.get('destino', None)
         data = request.query_params.get('data', None)
-
+        print("origem: ", origem)
         # Validação simples
         if not all([origem, destino, data]):
             return Response(
@@ -63,8 +74,9 @@ class FlightSearchView(APIView):
             )
 
         try:
-            search_date = datetime.strptime(data, '%Y-%m-%d').date()
-            if search_date < date.today():
+            search_date_obj = datetime.strptime(data, '%Y-%m-%d').date()
+
+            if search_date_obj < date.today():
                 return Response(
                     {"erro": "A data da busca não pode ser no passado."},
                     status=status.HTTP_400_BAD_REQUEST
@@ -74,27 +86,38 @@ class FlightSearchView(APIView):
                 {"erro": "Formato de data inválido. Use AAAA-MM-DD."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        print("origem: ", origem, "destino: ", destino, "data: ", data)
-        amadeus_response = search_flights_from_amadeus(origem, destino, data)
-        print("amadeus_response 1 :", amadeus_response)
 
-        if not amadeus_response:
+        try:
+            amadeus_response = search_flights_from_amadeus(
+                origem, destino, data)
+
+            if not amadeus_response or not amadeus_response.data:
+                return Response({"mensagem": "Nenhum voo encontrado para esta rota e data."},
+                                status=status.HTTP_404_NOT_FOUND)
+
+            parsed_flights = parse_amadeus_response(amadeus_response)
+
+            response_data = {
+                "route": f"{origem} -> {destino}",
+                "date": data,
+                "flight_options": parsed_flights
+            }
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except ResponseError as e:
+            error_details = e.response.result if hasattr(
+                e, 'response') and hasattr(e.response, 'result') else str(e)
             return Response(
-                {"mensagem": "Nenhum voo encontrado ou erro na consulta à Amadeus."},
-                status=status.HTTP_404_NOT_FOUND
+                {"erro": "Falha ao consultar a API da Amadeus.",
+                    "detalhes": error_details},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
-        print("amadeus_response 2 :", amadeus_response)
-        # formatação dos dados
-        parsed_flights = parse_amadeus_response(amadeus_response)
-        print("parsed :", parsed_flights)
-
-        response_data = {
-            "rota": f"{origem} -> {destino}",
-            "data": data,
-            "opcoes_voo": parsed_flights
-        }
-
-        return Response(response_data, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {"erro": "Ocorreu um erro interno inesperado no servidor.",
+                    "detalhes": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class PriceAlertCreateView(APIView):
@@ -157,6 +180,7 @@ class CheckAlertsView(APIView):
 class OpenAIUnderstandView(APIView):
     def post(self, request, *args, **kwargs):
         user_message = request.data.get('message', '')
+        print(user_message)
         if not user_message:
             return Response({"error": "Mensagem não fornecida"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -166,16 +190,62 @@ class OpenAIUnderstandView(APIView):
         prompt_template = """
             Você é um assistente NLU (Natural Language Understanding) para um chatbot de agência de viagens chamado "milha.ai". Sua tarefa é analisar a mensagem do usuário e extrair a "intenção" (intent) e as "entidades" (entities) relevantes, retornando-os em um formato JSON estrito.
 
-            A data de hoje é: {current_date}. Use esta data como referência para resolver datas relativas como "amanhã" ou "próxima sexta-feira".
+            A data de hoje é: {current_date}. Use esta data como referência para resolver datas relativas como "amanhã", "próxima sexta-feira", "dia 20 de setembro", etc.
 
-            As intenções (intent) possíveis são: "search_flight", "create_alert", "greeting", "help", "unknown".
-            As entidades (entities) possíveis são: "origin", "destination", "departure_date" (formato AAAA-MM-DD), "target_price" (número).
+            As intenções (intent) possíveis são:
+            - "search_flight": O usuário quer pesquisar um voo.
+            - "create_alert": O usuário quer criar um alerta de preço.
+            - "greeting": O usuário está apenas cumprimentando.
+            - "help": O usuário está pedindo ajuda.
+            - "unknown": A intenção não se encaixa em nenhuma das anteriores.
+
+            As entidades (entities) possíveis são:
+            - "origin": A cidade ou aeroporto de origem.
+            - "destination": A cidade ou aeroporto de destino.
+            - "departure_date": A data da viagem, sempre no formato AAAA-MM-DD.
+            - "target_price": O preço alvo para um alerta, como um número.
 
             Regras:
-            1. Se uma entidade não for mencionada, seu valor deve ser null.
-            2. Responda APENAS com o objeto JSON. Não adicione explicações ou texto extra.
+            1. Se uma entidade não for mencionada na mensagem, seu valor no JSON deve ser null.
+            2. Seja preciso na extração. "SP" ou "São Paulo" devem ser tratados como a mesma origem.
+            3. Para datas relativas, calcule a data exata com base na data de hoje fornecida.
+            4. Responda APENAS com o objeto JSON. Não adicione nenhuma explicação, introdução ou texto adicional.
+            5. Transformar o nome da cidade para símbolo (exemplo: Fortaleza será igual a FOR e assim por diante)
 
-            Analise a seguinte mensagem do usuário:
+            --- EXCEPCIONALMENTE AQUI, ALGUNS EXEMPLOS DE COMO VOCÊ DEVE SE COMPORTAR: ---
+
+            Mensagem: "Oi, tudo bem?"
+            JSON:
+            
+            "intent": "greeting",
+            "entities": 
+                "origin": null,
+                "destination": null,
+                "departure_date": null,
+                "target_price": null
+
+            Mensagem: "Quero uma passagem de Fortaleza para Guarulhos na próxima quarta-feira"
+            JSON:
+            
+            "intent": "search_flight",
+            "entities": 
+                "origin": "FOR",
+                "destination": "GRU",
+                "departure_date": "2025-07-30",
+                "target_price": null
+
+            Mensagem: "me avise quando o voo pra salvador ficar abaixo de 500 reais"
+            JSON:
+            
+            "intent": "create_alert",
+            "entities": 
+                "origin": null,
+                "destination": "SSA",
+                "departure_date": null,
+                "target_price": 500
+            --- FIM DOS EXEMPLOS ---
+
+            Agora, analise a seguinte mensagem do usuário:
         """
 
         final_prompt = prompt_template.format(

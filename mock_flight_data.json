@@ -2,80 +2,77 @@
   "MAD-BCN-2025-11-20": {
     "data": [
       {
+        "type": "flight-offer",
+        "id": "1-mock-direct",
         "itineraries": [
           {
+            "duration": "PT1H20M",
             "segments": [
               {
-                "departure": { "iataCode": "MAD", "at": "2025-11-20T09:00:00" },
-                "arrival": { "iataCode": "BCN", "at": "2025-11-20T10:20:00" },
+                "departure": {"iataCode": "MAD", "at": "2025-11-20T09:00:00"},
+                "arrival": {"iataCode": "BCN", "at": "2025-11-20T10:20:00"},
                 "carrierCode": "IB",
                 "number": "3014"
               }
             ]
           }
         ],
-        "price": { "total": "180.25" }
-      },
-      {
-        "itineraries": [
-          {
-            "segments": [
-              {
-                "departure": { "iataCode": "MAD", "at": "2025-11-20T11:00:00" },
-                "arrival": { "iataCode": "BCN", "at": "2025-11-20T12:20:00" },
-                "carrierCode": "VY",
-                "number": "1234"
-              }
-            ]
-          }
-        ],
-        "price": { "total": "155.50" }
+        "price": {"total": "180.25"}
       }
     ],
     "dictionaries": {
       "carriers": {
-        "IB": "Iberia",
-        "VY": "Vueling"
+        "IB": "Iberia"
       }
     }
   },
-  "FOR-GRU-2025-08-16": {
+  "FOR-GRU-2025-08-07": {
     "data": [
       {
+        "type": "flight-offer",
+        "id": "1-mock-connection",
+        "source": "GDS",
+        "instantTicketingRequired": false,
+        "nonHomogeneous": false,
+        "oneWay": false,
+        "lastTicketingDate": "2025-07-26",
+        "numberOfBookableSeats": 9,
         "itineraries": [
           {
+            "duration": "PT4H50M",
             "segments": [
               {
-                "departure": { "iataCode": "FOR", "at": "2025-08-16T14:00:00" },
-                "arrival": { "iataCode": "GRU", "at": "2025-08-16T17:30:00" },
-                "carrierCode": "G3",
-                "number": "2100"
+                "departure": {"iataCode": "FOR", "at": "2025-08-07T18:15:00"},
+                "arrival": {"iataCode": "CNF", "at": "2025-08-07T21:05:00"},
+                "carrierCode": "AD",
+                "number": "4312",
+                "id": "1"
+              },
+              {
+                "departure": {"iataCode": "CNF", "at": "2025-08-07T21:45:00"},
+                "arrival": {"iataCode": "GRU", "at": "2025-08-07T23:05:00"},
+                "carrierCode": "AD",
+                "number": "4212",
+                "id": "2"
               }
             ]
           }
         ],
-        "price": { "total": "850.00" }
-      },
-      {
-        "itineraries": [
-          {
-            "segments": [
-              {
-                "departure": { "iataCode": "FOR", "at": "2025-08-16T15:30:00" },
-                "arrival": { "iataCode": "GRU", "at": "2025-08-16T19:00:00" },
-                "carrierCode": "LA",
-                "number": "3456"
-              }
-            ]
-          }
-        ],
-        "price": { "total": "920.40" }
+        "price": {
+          "currency": "EUR",
+          "total": "593.50"
+        },
+        "validatingAirlineCodes": ["AD"]
       }
     ],
     "dictionaries": {
+      "locations": {
+        "FOR": {"cityCode": "FOR", "countryCode": "BR"},
+        "CNF": {"cityCode": "BHZ", "countryCode": "BR"},
+        "GRU": {"cityCode": "SAO", "countryCode": "BR"}
+      },
       "carriers": {
-        "G3": "GOL Linhas Aereas",
-        "LA": "LATAM"
+        "AD": "AZUL LINHAS AEREAS BRASILEIRAS"
       }
     }
   }
