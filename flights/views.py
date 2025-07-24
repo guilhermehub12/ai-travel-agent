@@ -1,3 +1,6 @@
+import openai
+import os
+import json
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -149,3 +152,47 @@ class CheckAlertsView(APIView):
                 alert.save()
 
         return Response({"notifications_to_send": notifications_to_send}, status=status.HTTP_200_OK)
+
+
+class OpenAIUnderstandView(APIView):
+    def post(self, request, *args, **kwargs):
+        user_message = request.data.get('message', '')
+        if not user_message:
+            return Response({"error": "Mensagem não fornecida"}, status=status.HTTP_400_BAD_REQUEST)
+
+        openai.api_key = os.getenv('OPENAI_API_KEY')
+        client = openai.OpenAI()
+
+        prompt_template = """
+            Você é um assistente NLU (Natural Language Understanding) para um chatbot de agência de viagens chamado "milha.ai". Sua tarefa é analisar a mensagem do usuário e extrair a "intenção" (intent) e as "entidades" (entities) relevantes, retornando-os em um formato JSON estrito.
+
+            A data de hoje é: {current_date}. Use esta data como referência para resolver datas relativas como "amanhã" ou "próxima sexta-feira".
+
+            As intenções (intent) possíveis são: "search_flight", "create_alert", "greeting", "help", "unknown".
+            As entidades (entities) possíveis são: "origin", "destination", "departure_date" (formato AAAA-MM-DD), "target_price" (número).
+
+            Regras:
+            1. Se uma entidade não for mencionada, seu valor deve ser null.
+            2. Responda APENAS com o objeto JSON. Não adicione explicações ou texto extra.
+
+            Analise a seguinte mensagem do usuário:
+        """
+
+        final_prompt = prompt_template.format(
+            current_date=date.today().strftime('%Y-%m-%d'))
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo-1106",
+                messages=[
+                    {"role": "system", "content": final_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                response_format={"type": "json_object"}
+            )
+
+            ai_json_response = json.loads(response.choices[0].message.content)
+            return Response(ai_json_response, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": f"Não foi possível processar a mensagem: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

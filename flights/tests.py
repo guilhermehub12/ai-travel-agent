@@ -127,3 +127,35 @@ class FlightSearchViewTestCase(APITestCase):
         # o alerta no bd é desativado
         alert.refresh_from_db()
         self.assertFalse(alert.is_active)
+
+    @patch('openai.resources.chat.completions.Completions.create')
+    def test_understand_message_endpoint(self, mock_openai_create):
+        """
+        Garante que o endpoint de compreensão processa uma mensagem e retorna o JSON da OpenAI.
+        """
+        # Mock que a OpenAI deve retornar
+        mock_ai_response = {
+            "intent": "search_flight",
+            "entities": {
+                "origin": "São Paulo",
+                "destination": "Rio de Janeiro",
+                "departure_date": "2025-07-25",
+                "target_price": None
+            }
+        }
+        # simulação da estrutura de resposta da OpenAI
+        mock_completion = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message.content = json.dumps(mock_ai_response)
+        mock_completion.choices = [mock_choice]
+        mock_openai_create.return_value = mock_completion
+        # chamada pro endpoint de compreensão de msg
+        url = reverse('understand-message')
+        data = {"message": "Quero ir de SP para Rio de Janeiro na próxima sexta"}
+        response = self.client.post(url, data, format='json')
+        # verifica se o endpoint retorna 200
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # verifica se o endpoint retorna o JSON esperado
+        self.assertEqual(response.data['intent'], "search_flight")
+        self.assertEqual(response.data['entities']['origin'], "São Paulo")
+
