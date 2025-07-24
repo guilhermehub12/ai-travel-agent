@@ -14,6 +14,7 @@ RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 FROM python:3.11-slim
 
 RUN useradd --create-home appuser
+ENV PATH="/home/appuser/.local/bin:${PATH}"
 WORKDIR /home/appuser/app
 USER appuser
 
