@@ -3,6 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from .amadeus_service import search_flights_from_amadeus
 from datetime import datetime, date
+from .serializers import PriceAlertSerializer
+from .models import PriceAlert
 
 
 def parse_amadeus_response(amadeus_response):
@@ -70,7 +72,7 @@ class FlightSearchView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         print("origem: ", origem, "destino: ", destino, "data: ", data)
-        amadeus_response  = search_flights_from_amadeus(origem, destino, data)
+        amadeus_response = search_flights_from_amadeus(origem, destino, data)
         print("amadeus_response 1 :", amadeus_response)
 
         if not amadeus_response:
@@ -90,3 +92,60 @@ class FlightSearchView(APIView):
         }
 
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+class PriceAlertCreateView(APIView):
+    def post(self, request, *args, **kwargs):
+        serializer = PriceAlertSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"mensagem": "Alerta criado com sucesso!"}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CheckAlertsView(APIView):
+    def get(self, request, *args, **kwargs):
+        active_alerts = PriceAlert.objects.filter(is_active=True)
+        notifications_to_send = []
+
+        # A data da busca será sempre o dia de amanhã para garantir voos
+        search_date = date.today().replace(day=date.today().day + 1).strftime('%Y-%m-%d')
+
+        for alert in active_alerts:
+            print(
+                f"Verificando alerta para {alert.origin_code} -> {alert.destination_code}")
+
+            amadeus_response = search_flights_from_amadeus(
+                alert.origin_code,
+                alert.destination_code,
+                search_date
+            )
+
+            if not amadeus_response or not amadeus_response.data:
+                continue  # Pula para o próximo alerta se não encontrar voos
+
+            # Encontra o voo mais barato na resposta
+            from decimal import Decimal
+            cheapest_flight_price = min(
+                [Decimal(offer['price']['total'])
+                 for offer in amadeus_response.data]
+            )
+
+            if cheapest_flight_price <= alert.target_price:
+                print(
+                    f"PREÇO BOM ENCONTRADO! Alvo: {alert.target_price}, Encontrado: {cheapest_flight_price}")
+
+                # Adiciona à lista de notificações
+                notifications_to_send.append({
+                    'user_whatsapp_id': alert.user_whatsapp_id,
+                    'origin': alert.origin_code,
+                    'destination': alert.destination_code,
+                    'target_price': str(alert.target_price),
+                    'found_price': str(cheapest_flight_price)
+                })
+
+                # Desativa o alerta para não notificar de novo
+                alert.is_active = False
+                alert.save()
+
+        return Response({"notifications_to_send": notifications_to_send}, status=status.HTTP_200_OK)
