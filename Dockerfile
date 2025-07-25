@@ -28,4 +28,4 @@ COPY . .
 EXPOSE 8080
 
 # Comando para iniciar a aplicação quando o contêiner rodar
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "config.wsgi:application"]
+CMD python manage.py migrate && gunicorn --bind 0.0.0.0:8080 --workers 2 config.wsgi:application

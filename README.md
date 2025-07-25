@@ -9,11 +9,11 @@ Este projeto implementa um agente de IA conversacional para o WhatsApp, capaz de
 - [Pré-requisitos](#-pré-requisitos)
 - [⚙️ Configuração do Ambiente](#️-configuração-do-ambiente)
 - [🚀 Executando a API Django (Localmente)](#-executando-a-api-django-localmente)
+- [📊 Dashboard de Monitoramento](#-dashboard-de-monitoramento)
 - [📖 Documentação da API](#-documentação-da-api)
   - [GET /api/v1/search-flights/](#get-apiv1search-flights)
   - [POST /api/v1/create-alert/](#post-apiv1create-alert)
   - [GET /api/v1/check-alerts/](#get-apiv1check-alerts)
-  - [POST /api/v1/understand-message/](#post-apiv1understand-message)
 - [🤖 Configuração dos Workflows no n8n](#-configuração-dos-workflows-no-n8n)
   - [Workflow 1: Receptor Principal](#workflow-1-receptor-principal)
   - [Workflow 2: Verificador de Alertas](#workflow-2-verificador-de-alertas)
@@ -26,6 +26,7 @@ Este projeto implementa um agente de IA conversacional para o WhatsApp, capaz de
 * **Consulta de Preços:** Busca passagens aéreas entre cidades usando a API da Amadeus (com suporte a dados mockados para desenvolvimento offline).
 * **Alerta de Preços:** Permite que o usuário configure alertas para rotas e preços específicos.
 * **Conversação Natural:** Utiliza a API da OpenAI (GPT) para interpretar a linguagem natural do usuário, extraindo intenções e informações relevantes.
+* **Dashboard Web:** Uma interface simples para visualizar todos os alertas de preço ativos.
 * **Orquestração via n8n:** Gerencia o fluxo da conversa e a lógica de negócios, integrando todas as APIs.
 
 ## 🏗️ Arquitetura do Projeto
@@ -34,10 +35,13 @@ O sistema é composto por três grandes pilares que se comunicam de forma orques
 
 `Canal do Usuário (WhatsApp)` ↔️ `Camada de API (Evolution/Oficial)` ↔️ `n8n (Orquestrador)` ↔️ `API Django (Backend)` ↔️ `Serviços Externos (OpenAI, Amadeus)`
 
+O projeto Django também serve uma interface web (`/dashboard/`) para visualização de dados.
+
 ## 💻 Tecnologias Utilizadas
 
 * **Orquestração:** [n8n.io](https://n8n.io/)
 * **Backend:** Python 3.11+, Django, Django REST Framework
+* **Frontend (Dashboard):** Django Templates, Pico.css
 * **Inteligência Artificial:** OpenAI API (GPT-3.5-Turbo)
 * **Dados de Voos:** Amadeus Self-Service API (com suporte a dados mockados)
 * **Integração WhatsApp:** Evolution API ou WhatsApp Business Cloud API
@@ -87,6 +91,9 @@ Antes de começar, garanta que você tenha as seguintes ferramentas instaladas:
     # Controle de Mock
     # Mude para True para usar o mock_flight_data.json e trabalhar offline
     USE_MOCK_AMADEUS=False
+
+    # Variáveis para banco de dados (PostgreSQL)
+    DATABASE_URL='postgresql://user:password@host/database'
     ```
 
 3.  **Crie e ative o ambiente virtual Python:**
@@ -112,7 +119,15 @@ Com o ambiente configurado, inicie o servidor de desenvolvimento:
 python manage.py runserver
 ```
 
-A API estará disponível em http://127.0.0.1:8000.
+A API estará disponível em http://127.0.0.1:8000/api/v1/... e o Dashboard em http://127.0.0.1:8000/dashboard/.
+
+## 📊 Dashboard de Monitoramento
+- O projeto inclui uma interface web simples para monitorar todos os alertas de preço que estão atualmente ativos no sistema.
+
+- Acesso: Para acessar o dashboard localmente, inicie o servidor e navegue até:
+http://127.0.0.1:8000/dashboard/
+
+- Funcionalidade: A página exibe uma tabela em tempo real com os dados dos alertas, incluindo o ID do usuário, a rota, o preço alvo e a data de criação.
 
 ## 📖 Documentação da API
 - Todos os endpoints são prefixados com /api/v1/.
@@ -191,53 +206,25 @@ Verifica todos os alertas ativos, busca os preços atuais e retorna uma lista de
     }
     `
 
-### POST /api/v1/understand-message/
-Interpreta uma mensagem de texto usando a OpenAI e retorna a intenção e entidades.
-
-* **Corpo da Requisição (JSON):**
-    * `message` (string, obrigatório): A mensagem do usuário.
-* **Exemplo de Requisição:**
-    `bash
-    curl -X POST http://127.0.0.1:8000/api/v1/understand-message/ \
-    -H "Content-Type: application/json" \
-    -d '{"message": "quanto custa um voo de fortaleza para guarulhos amanhã?"}'
-    `
-* **Resposta de Sucesso (200 OK):**
-    `json
-    {
-      "intent": "search_flight",
-      "entities": {
-        "origin": "FOR",
-        "destination": "GRU",
-        "departure_date": "2025-07-25",
-        "target_price": null
-      }
-    }
-    `
-
 ## 🤖 Configuração dos Workflows no n8n
 
 ### Workflow 1: Receptor Principal
 Este workflow é ativado por um **Webhook** que recebe as mensagens do WhatsApp.
 
-1.  **Webhook:** Recebe a mensagem.
-2.  **HTTP Request (`Entender Mensagem`):** Chama o endpoint `/understand-message/`.
-3.  **Switch:** Direciona o fluxo com base na `intent` retornada.
-    * **Caso `search_flight`:**
-        1.  **HTTP Request (`Buscar Voos na API`):** Chama `/search-flights/` usando as `entities` extraídas.
-        2.  **Set (`Formatar Mensagem de Voos`):** Monta a mensagem de resposta com os voos encontrados. A expressão chave é:
-            `javascript
-            Encontrei estas opções para {{$node["Entender Mensagem"].json.entities.origin}} → {{$node["Entender Mensagem"].json.entities.destination}} para o dia {{ $node["Entender Mensagem"].json.entities.departure_date.split('-').reverse().join('/') }}:
-            ✈️ {{ $node["Buscar Voos na API"].json.flight_options.map(flight => `${flight.carrier} | Saída: ${flight.departure_time.split('T')[1].substring(0,5)}h | ${(flight.stops > 0 ? `${flight.stops} parada(s)` : 'Voo Direto')} | Preço: R$ ${parseFloat(flight.price).toFixed(2)}`).join('\n') }}
+1. **Webhook**: Recebe a mensagem.
 
-            Quer que eu configure um alerta caso o preço baixe?
-            `
-    * **Caso `greeting`:**
-        1.  **Set (`Montar Saudação`):** Monta uma mensagem de boas-vindas padrão.
-4.  **Nó de Envio (WhatsApp):** Envia a `responseText` (gerada nos nós `Set`) de volta para o usuário.
+2. **Audio**: Se a mensagem for um áudio, o áudio é transcrito para texto e enviado para a IA.
+
+2. **IA Agent**: Utiliza o OpenAI Chat Model e Redis Memory para entender a mensagem do usuário, manter o contexto e decidir qual ferramenta usar (search_flight, check_alerts ou create_alert). Se faltar informação, ele gera uma pergunta de esclarecimento.
+
+3. **Tools (HTTP Request Tool)**: Nós separados para search_flight, check_alerts e create_alert são conectados à entrada Tool do Agente. Eles executam as chamadas para a API Django.
+
+4. **Set (Formatar Resposta)**: A saída do IA Agent (seja o resultado de uma ferramenta ou uma pergunta) é formatada em uma responseText.
+
+5. **Nó de Envio (WhatsApp)**: Envia a responseText de volta para o usuário.
 
 ### Workflow 2: Verificador de Alertas
-Este workflow é ativado por um agendamento para verificar os preços periodicamente.
+Este workflow é ativado por um agendamento ou se for pedido na conversa (ativado pela IA Agent) para verificar os preços periodicamente.
 
 1.  **Schedule:** É o gatilho. Configure para rodar no intervalo desejado (ex: `0 8 * * *` para rodar todo dia às 8h da manhã).
 2.  **HTTP Request (`Verificar Alertas`):** Faz uma chamada `GET` para o endpoint `/check-alerts/`.

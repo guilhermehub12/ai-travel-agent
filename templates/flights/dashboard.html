@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Alertas - Agente de Viagens IA</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+</head>
+<body>
+    <main class="container">
+        <header>
+            <h1>Dashboard de Alertas Ativos</h1>
+            <p>Monitorando os alertas de preço criados pelos usuários.</p>
+        </header>
+
+        {% if alerts %}
+            <figure>
+                <table>
+                    <thead>
+                        <tr>
+                            <th scope="col">Usuário (WhatsApp)</th>
+                            <th scope="col">Origem</th>
+                            <th scope="col">Destino</th>
+                            <th scope="col">Preço Alvo</th>
+                            <th scope="col">Criado em</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for alert in alerts %}
+                        <tr>
+                            <td>{{ alert.user_whatsapp_id }}</td>
+                            <td>{{ alert.origin_code }}</td>
+                            <td>{{ alert.destination_code }}</td>
+                            <td>R$ {{ alert.target_price }}</td>
+                            <td>{{ alert.created_at|date:"d/m/Y H:i" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </figure>
+        {% else %}
+            <article>
+                Nenhum alerta de preço ativo no momento.
+            </article>
+        {% endif %}
+    </main>
+</body>
+</html>

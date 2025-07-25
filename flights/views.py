@@ -9,7 +9,7 @@ from datetime import datetime, date, timedelta
 from .serializers import PriceAlertSerializer
 from .models import PriceAlert
 from amadeus import ResponseError
-
+from django.views.generic import ListView
 
 def parse_amadeus_response(amadeus_response):
     """
@@ -176,93 +176,11 @@ class CheckAlertsView(APIView):
 
         return Response({"notifications_to_send": notifications_to_send}, status=status.HTTP_200_OK)
 
+class AlertsDashboardView(ListView):
+    model = PriceAlert
+    template_name = 'flights/dashboard.html'
+    context_object_name = 'alerts'
 
-class OpenAIUnderstandView(APIView):
-    def post(self, request, *args, **kwargs):
-        user_message = request.data.get('message', '')
-        print(user_message)
-        if not user_message:
-            return Response({"error": "Mensagem não fornecida"}, status=status.HTTP_400_BAD_REQUEST)
+    def get_queryset(self):
+        return PriceAlert.objects.filter(is_active=True).order_by('-created_at')
 
-        openai.api_key = os.getenv('OPENAI_API_KEY')
-        client = openai.OpenAI()
-
-        prompt_template = """
-            Você é um assistente NLU (Natural Language Understanding) para um chatbot de agência de viagens chamado "milha.ai". Sua tarefa é analisar a mensagem do usuário e extrair a "intenção" (intent) e as "entidades" (entities) relevantes, retornando-os em um formato JSON estrito.
-
-            A data de hoje é: {current_date}. Use esta data como referência para resolver datas relativas como "amanhã", "próxima sexta-feira", "dia 20 de setembro", etc.
-
-            As intenções (intent) possíveis são:
-            - "search_flight": O usuário quer pesquisar um voo.
-            - "create_alert": O usuário quer criar um alerta de preço.
-            - "greeting": O usuário está apenas cumprimentando.
-            - "help": O usuário está pedindo ajuda.
-            - "unknown": A intenção não se encaixa em nenhuma das anteriores.
-
-            As entidades (entities) possíveis são:
-            - "origin": A cidade ou aeroporto de origem.
-            - "destination": A cidade ou aeroporto de destino.
-            - "departure_date": A data da viagem, sempre no formato AAAA-MM-DD.
-            - "target_price": O preço alvo para um alerta, como um número.
-
-            Regras:
-            1. Se uma entidade não for mencionada na mensagem, seu valor no JSON deve ser null.
-            2. Seja preciso na extração. "SP" ou "São Paulo" devem ser tratados como a mesma origem.
-            3. Para datas relativas, calcule a data exata com base na data de hoje fornecida.
-            4. Responda APENAS com o objeto JSON. Não adicione nenhuma explicação, introdução ou texto adicional.
-            5. Transformar o nome da cidade para símbolo (exemplo: Fortaleza será igual a FOR e assim por diante)
-
-            --- EXCEPCIONALMENTE AQUI, ALGUNS EXEMPLOS DE COMO VOCÊ DEVE SE COMPORTAR: ---
-
-            Mensagem: "Oi, tudo bem?"
-            JSON:
-            
-            "intent": "greeting",
-            "entities": 
-                "origin": null,
-                "destination": null,
-                "departure_date": null,
-                "target_price": null
-
-            Mensagem: "Quero uma passagem de Fortaleza para Guarulhos na próxima quarta-feira"
-            JSON:
-            
-            "intent": "search_flight",
-            "entities": 
-                "origin": "FOR",
-                "destination": "GRU",
-                "departure_date": "2025-07-30",
-                "target_price": null
-
-            Mensagem: "me avise quando o voo pra salvador ficar abaixo de 500 reais"
-            JSON:
-            
-            "intent": "create_alert",
-            "entities": 
-                "origin": null,
-                "destination": "SSA",
-                "departure_date": null,
-                "target_price": 500
-            --- FIM DOS EXEMPLOS ---
-
-            Agora, analise a seguinte mensagem do usuário:
-        """
-
-        final_prompt = prompt_template.format(
-            current_date=date.today().strftime('%Y-%m-%d'))
-
-        try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo-1106",
-                messages=[
-                    {"role": "system", "content": final_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                response_format={"type": "json_object"}
-            )
-
-            ai_json_response = json.loads(response.choices[0].message.content)
-            return Response(ai_json_response, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response({"error": f"Não foi possível processar a mensagem: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
